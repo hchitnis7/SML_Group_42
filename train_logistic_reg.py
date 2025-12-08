@@ -123,3 +123,22 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args.data)
+
+
+"""
+====== EVALUATION RESULTS ======
+Accuracy : 0.7781
+Precision: 0.4414
+Recall   : 0.8448
+F1 Score : 0.5799
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.96      0.76      0.85       262
+           1       0.44      0.84      0.58        58
+
+    accuracy                           0.78       320
+   macro avg       0.70      0.80      0.71       320
+weighted avg       0.86      0.78      0.80       320
+"""
