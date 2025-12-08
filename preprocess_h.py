@@ -66,11 +66,9 @@ def main(input_csv: str, outdir: str, test_size: float):
         stratify=df['target_num']
     )
 
-    # Save splits
     save_csv(train_df.reset_index(drop=True), train_path)
     save_csv(test_df.reset_index(drop=True), test_path)
 
-    # Print summary
     print(f"[INFO] Train/test split completed: train={len(train_df)}, test={len(test_df)} (test_size={test_size})")
     print(f"[INFO] Files saved in directory: {os.path.abspath(outdir)}")
 
