@@ -144,7 +144,6 @@ def main(input_csv, outdir, test_size):
     save(scaled_test, f"{outdir}/logreg_test.csv")
 
     print("\n[DONE] Preprocessing completed for ALL methods.")
-    print("Model files now contain ZERO data preprocessing.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
