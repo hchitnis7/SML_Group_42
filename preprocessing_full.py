@@ -5,15 +5,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from imblearn.over_sampling import SMOTE
 
-# ==================================================
+
 # CONFIG
-# ==================================================
+
 DEFAULT_INPUT = "/teamspace/studios/this_studio/SML_PROJECT/training_data_ht2025.csv"
 DEFAULT_OUTDIR = "processed_full"
 DEFAULT_TEST_SIZE = 0.2
 RANDOM_STATE = 42
 
-TARGET_COLS = ["increase_stock", "target", "target_num"]
+LABEL_COL = "increase_stock"
 
 CATBOOST_CATEGORICALS = [
     "hour_of_day",
@@ -25,49 +25,65 @@ CATBOOST_CATEGORICALS = [
     "is_weekend"
 ]
 
-# ==================================================
-# FEATURE ENGINEERING
-# ==================================================
-def feature_engineering(df):
+
+# FEATURE ENGINEERING (ORDER-SAFE)
+
+def feature_engineering(df: pd.DataFrame):
     df = df.copy()
+    original_cols = list(df.columns)
+    new_cols = []
 
-    df["target_num"] = df["increase_stock"].map({
-        "high_bike_demand": 1,
-        "low_bike_demand": 0
-    })
-    df["target"] = df["target_num"]
+    # --- target mapping (ONLY if label exists)
+    if LABEL_COL in df.columns:
+        df["target_num"] = df[LABEL_COL].map({
+            "high_bike_demand": 1,
+            "low_bike_demand": 0
+        })
+        df["target"] = df["target_num"]
+        new_cols += ["target_num", "target"]
 
+    # --- engineered features
     df["is_weekend"] = (df["day_of_week"].astype(int) >= 5).astype(int)
     df["is_raining"] = (df["precip"] > 0).astype(int)
     df["has_snow"] = (df["snowdepth"] > 0).astype(int)
+    new_cols += ["is_weekend", "is_raining", "has_snow"]
 
-    return df
+    # --- enforce column order
+    final_cols = original_cols + new_cols
+    df = df[final_cols]
 
-# ==================================================
+    return df, original_cols, new_cols
+
+
 # HELPERS
-# ==================================================
+
 def save(df, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     df.to_csv(path, index=False)
     print(f"[SAVED] {path}")
 
-def numeric_features(df):
+def numeric_features(df, exclude):
     return [
         c for c in df.columns
-        if c not in TARGET_COLS and df[c].dtype != "object"
+        if c not in exclude and df[c].dtype != "object"
     ]
 
+
 # MAIN PIPELINE
+
 def main(input_csv, outdir, test_size):
 
-    # Load & feature engineering
-    
-    df = pd.read_csv(input_csv)
-    df = feature_engineering(df)
 
-    
+    # Load & feature engineering
+
+    df = pd.read_csv(input_csv)
+    df, original_cols, engineered_cols = feature_engineering(df)
+
+    save(df, f"{outdir}/base_full.csv")
+
+
     # Train / test split
-    
+
     train_df, test_df = train_test_split(
         df,
         test_size=test_size,
@@ -75,32 +91,47 @@ def main(input_csv, outdir, test_size):
         random_state=RANDOM_STATE
     )
 
-    save(df, f"{outdir}/base_full.csv")
     save(train_df, f"{outdir}/base_train.csv")
     save(test_df, f"{outdir}/base_test.csv")
 
-    
-    # SMOTE (numeric space)
-    
-    num_cols = numeric_features(train_df)
 
-    X_train = train_df[num_cols]
+    # SMOTE (NUMERIC ONLY)
+
+    label_cols = ["target_num", "target", LABEL_COL]
+    num_cols = numeric_features(train_df, exclude=label_cols)
+
+    X_train_num = train_df[num_cols]
     y_train = train_df["target_num"]
 
     smote = SMOTE(random_state=RANDOM_STATE)
-    X_sm, y_sm = smote.fit_resample(X_train, y_train)
+    X_sm, y_sm = smote.fit_resample(X_train_num, y_train)
 
-    smote_train = pd.DataFrame(X_sm, columns=num_cols)
+    # --- reconstruct full dataframe (ORDER SAFE)
+    smote_train = train_df.iloc[:0].copy()
+    smote_train = pd.concat(
+        [smote_train, pd.DataFrame(columns=train_df.columns)],
+        ignore_index=True
+    )
+
+    smote_train = pd.DataFrame(columns=train_df.columns)
+    smote_train[num_cols] = X_sm
     smote_train["target_num"] = y_sm
     smote_train["target"] = y_sm
-    smote_train["increase_stock"] = y_sm.map({
+    smote_train[LABEL_COL] = y_sm.map({
         1: "high_bike_demand",
         0: "low_bike_demand"
     })
 
-    
-    # CATBOOST
-    
+    # fill non-numeric engineered flags
+    for col in engineered_cols:
+        if col not in smote_train.columns:
+            smote_train[col] = train_df[col].mode()[0]
+
+    smote_train = smote_train[train_df.columns]
+
+
+    # CATBOOST DATA
+
     cat_train = smote_train.copy()
     cat_test = test_df.copy()
 
@@ -112,17 +143,15 @@ def main(input_csv, outdir, test_size):
     save(cat_train, f"{outdir}/catboost_train.csv")
     save(cat_test, f"{outdir}/catboost_test.csv")
 
-    
-    # RANDOM FOREST 
-    # (SMOTE, NO scaling)
-    
+
+    # RANDOM FOREST DATA
+
     save(smote_train, f"{outdir}/rf_train.csv")
     save(test_df, f"{outdir}/rf_test.csv")
 
-    
-    # SCALING 
-    # (LDA + Logistic + Optuna)
-    
+
+    # SCALING (LDA / LOGREG)
+
     scaler = StandardScaler()
 
     scaled_train = smote_train.copy()
@@ -131,23 +160,18 @@ def main(input_csv, outdir, test_size):
     scaled_train[num_cols] = scaler.fit_transform(scaled_train[num_cols])
     scaled_test[num_cols] = scaler.transform(scaled_test[num_cols])
 
-    
-    # LDA
-    
     save(scaled_train, f"{outdir}/lda_train.csv")
     save(scaled_test, f"{outdir}/lda_test.csv")
 
-    
-    # Logistic / Optuna
-    
     save(scaled_train, f"{outdir}/logreg_train.csv")
     save(scaled_test, f"{outdir}/logreg_test.csv")
 
-    print("\n[DONE] Preprocessing completed for ALL methods.")
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Unified preprocessing for ALL models (SMOTE + scaling + categorical handling)."
+        description="Unified preprocessing for ALL models."
     )
     parser.add_argument("--input", default=DEFAULT_INPUT)
     parser.add_argument("--outdir", default=DEFAULT_OUTDIR)
