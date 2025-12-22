@@ -52,8 +52,9 @@ print("\nClassification Report:\n", classification_report(y_test, y_pred))
 print("\nConfusion Matrix:\n", confusion_matrix(y_test, y_pred))
 model.get_feature_importance(prettified=True)
 
-# Test code
-final_test_df = pd.read_csv("catboost_final_test.csv")   # your held-out test file
+#Evaluation on the final test set
+# a basic preprocessing is done on the test dataset to obtain "catboost_final_test.csv"
+final_test_df = pd.read_csv("catboost_final_test.csv")    
 X_final_test = final_test_df.drop(
     columns=[c for c in ['increase_stock', 'target', 'target_num'] if c in final_test_df.columns]
 )
@@ -64,8 +65,8 @@ final_test_pool = Pool(X_final_test, cat_features=categorical_features)
 y_pred_final = model.predict(final_test_pool)
 y_prob_final = model.predict_proba(final_test_pool)[:, 1]
 
-# Save predictions
 final_test_df["predicted_label"] = y_pred_final
 final_test_df["predicted_probability"] = y_prob_final
 
+# the whole predictions from which predictions.csv is then extracted
 final_test_df.to_csv("catboost_predictions.csv", index=False)
