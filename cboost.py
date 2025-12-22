@@ -31,7 +31,7 @@ test_pool = Pool(X_test, y_test, cat_features=categorical_features)
 class_weights = [1, 1.5]
 model = CatBoostClassifier(
     iterations=600,
-    learning_rate=0.03,
+    learning_rate=0.05,
     depth=6,
     loss_function='Logloss',
     eval_metric='F1',
